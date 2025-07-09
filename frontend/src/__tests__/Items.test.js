@@ -1,52 +1,80 @@
 import React from 'react';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import Items from '../components/Items';
-import { BrowserRouter } from 'react-router-dom';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import Items from '../pages/Items';
+import { MemoryRouter } from 'react-router-dom';
 
+// Mock global fetch
 beforeEach(() => {
-  fetch.resetMocks();
+  global.fetch = jest.fn();
 });
 
-const mockData = {
-  items: [
-    { id: 1, name: 'Laptop Pro' },
-    { id: 2, name: 'Standing Desk' },
-  ],
-  total: 2,
-};
+afterEach(() => {
+  jest.resetAllMocks();
+});
 
-function renderWithRouter(ui) {
-  return render(<BrowserRouter>{ui}</BrowserRouter>);
-}
+test('renders items list and pagination', async () => {
+  global.fetch.mockResolvedValueOnce({
+    ok: true,
+    json: async () => ({
+      items: [
+        { id: 1, name: 'Item A' },
+        { id: 2, name: 'Item B' }
+      ],
+      total: 2
+    })
+  });
 
-test('renders loading state and fetches items', async () => {
-  fetch.mockResponseOnce(JSON.stringify(mockData));
+  render(
+    <MemoryRouter>
+      <Items />
+    </MemoryRouter>
+  );
 
-  renderWithRouter(<Items />);
-  
   expect(screen.getByPlaceholderText(/search/i)).toBeInTheDocument();
-  expect(screen.getByText(/no items found/i)).toBeInTheDocument(); // While loading
+
+  // Wait for items to load
+  expect(await screen.findByText('Item A')).toBeInTheDocument();
+  expect(screen.getByText('Item B')).toBeInTheDocument();
+});
+
+test('shows "No items found" when API returns empty', async () => {
+  global.fetch.mockResolvedValueOnce({
+    ok: true,
+    json: async () => ({ items: [], total: 0 })
+  });
+
+  render(
+    <MemoryRouter>
+      <Items />
+    </MemoryRouter>
+  );
+
+  expect(await screen.findByText(/no items found/i)).toBeInTheDocument();
+});
+
+test('calls fetch with query on search input', async () => {
+  global.fetch.mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      items: [{ id: 3, name: 'Avocado' }],
+      total: 1
+    })
+  });
+
+  render(
+    <MemoryRouter>
+      <Items />
+    </MemoryRouter>
+  );
+
+  const input = screen.getByPlaceholderText(/search/i);
+  fireEvent.change(input, { target: { value: 'Avo' } });
 
   await waitFor(() => {
-    expect(screen.getByText('Laptop Pro')).toBeInTheDocument();
-    expect(screen.getByText('Standing Desk')).toBeInTheDocument();
-  });
-});
-
-test('handles search input and resets page', async () => {
-  fetch.mockResponseOnce(JSON.stringify(mockData)); // Initial load
-
-  renderWithRouter(<Items />);
-  await waitFor(() => screen.getByText('Laptop Pro'));
-
-  fetch.mockResponseOnce(JSON.stringify({
-    items: [{ id: 3, name: 'Avocado' }],
-    total: 1,
-  }));
-
-  fireEvent.change(screen.getByPlaceholderText(/search/i), {
-    target: { value: 'ava' }
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('q=Avo')
+    );
   });
 
-  await waitFor(() => screen.getByText('Avocado'));
+  expect(await screen.findByText('Avocado')).toBeInTheDocument();
 });
